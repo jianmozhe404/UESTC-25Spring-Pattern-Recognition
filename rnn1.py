@@ -92,6 +92,39 @@ class RNN(torch.nn.Module):
         out = self.fc(output[:, -1, :])
         return out
 
+class LSTM(torch.nn.Module):
+    def __init__(self,input_dim,hidden_dim,device,num_layers=3):
+        super(LSTM,self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.bidirectional = False
+        self.rnn = torch.nn.LSTM(self.input_dim,self.hidden_dim,num_layers=num_layers,dropout=0.1,
+                           bidirectional=self.bidirectional,batch_first=True)
+       
+        self.fc = torch.nn.Linear(hidden_dim,input_dim)  
+        self.device = device
+        
+    def forward(self,X,h_prev=None):
+        """
+        X : (batch_size, seq_length, features)
+        h_prev : (num_layers*num_directions, batch_size, hidden_dim)
+        output : (batch_size, seq_length, hidden_dim*num_directions)
+        h_n : (num_layers*num_directions, batch_size, hidden_dim)
+        """
+        batch_size = X.size(0)
+        if h_prev is None:
+            
+            h_prev = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+            c_prev = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+            hidden = (h_prev,c_prev)
+
+        output, (h_n,c_n) = self.rnn(X, hidden)
+        
+        # 获取最后一个时间步的输出并通过全连接层
+        out = self.fc(output[:, -1, :])
+        return out
+
 # %%
 #滑窗切分样本
 class slidingWindowDataset:
@@ -138,7 +171,7 @@ dataset = slidingWindowDataset(train_data,window_size,stride)
 #暂时选择不打乱数据
 dataloader = torch.utils.data.DataLoader(dataset,batch_size,shuffle=False)
 
-model = RNN(input_size,hidden_size,device,num_layers)
+model = LSTM(input_size,hidden_size,device,num_layers)
 optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
 #损失函数暂时选择均方误差
 criterion = torch.nn.MSELoss()
