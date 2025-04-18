@@ -124,10 +124,10 @@ class slidingWindowDataset:
 # %%
 input_size = 31  # 特征维度
 hidden_size = 256  # 隐藏层维度
-num_layers = 2    # 隐藏层层数
+num_layers = 3    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
-num_epochs = 500
+num_epochs = 1000
 window_size = 100
 stride = 10
 threshold = 1e-5
