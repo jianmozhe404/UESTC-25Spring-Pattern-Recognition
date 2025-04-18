@@ -66,11 +66,11 @@ class RNN(torch.nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
-        self.bidirectional = True  # 明确标记为双向
+        self.bidirectional = False
         self.rnn = torch.nn.RNN(self.input_dim,self.hidden_dim,num_layers=num_layers,dropout=0.1,
                            bidirectional=self.bidirectional,batch_first=True)
-        # 注意：双向RNN的输出维度是hidden_dim*2
-        self.fc = torch.nn.Linear(hidden_dim*2,input_dim)  # 修改全连接层的输入维度
+       
+        self.fc = torch.nn.Linear(hidden_dim,input_dim)  
         self.device = device
         
     def forward(self,X,h_prev=None):
@@ -83,8 +83,8 @@ class RNN(torch.nn.Module):
         batch_size = X.size(0)
         if h_prev is None:
             # 修正隐藏状态维度，考虑双向因素
-            num_directions = 2 if self.bidirectional else 1
-            h_prev = torch.zeros(self.num_layers * num_directions, batch_size, self.hidden_dim).to(self.device)
+            
+            h_prev = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
         
         output, h_n = self.rnn(X, h_prev)
         
@@ -128,7 +128,7 @@ num_layers = 2    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
 num_epochs = 500
-window_size = 500
+window_size = 100
 stride = 10
 threshold = 1e-5
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -202,50 +202,8 @@ def train(model, dataloader, optimizer, criterion, num_epochs, device, patience=
     
     return model, best_loss
 
-#修改预测函数
-
-# 修改滑动窗口数据集类，支持中心预测模式
-class slidingWindowDataset:
-    def __init__(self, squeeze, window_size, stride, future_steps=10):
-        super(slidingWindowDataset, self).__init__()
-        self.sq = squeeze
-        self.window_size = window_size
-        self.stride = stride
-        self.future_steps = future_steps
-        # 调整样本数量计算方式，确保有足够的未来时间步
-        self.num_samples = (len(squeeze) - window_size - future_steps) // stride + 1
-
-    def __len__(self):
-        return self.num_samples
-    
-    def __getitem__(self, idx):
-        """ 
-        输入: 一个样本的索引
-        返回:
-        1. 样本本身: 包含过去和未来的时间窗口 (window_size + future_steps, features)
-        2. 样本标签: 当前时间步的数据 (1, features)
-        """
-        start = idx * self.stride
-        # 中心点位置
-        center = start + self.window_size // 2
-        # 窗口包含过去和未来的数据
-        window_start = start
-        window_end = start + self.window_size + self.future_steps
-        
-        # 确保索引不越界
-        if window_end > len(self.sq):
-            window_end = len(self.sq)
-        
-        sample = self.sq[window_start:window_end, :]
-        # 预测中心点的值
-        label = self.sq[center]
-        
-        return torch.tensor(sample, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
-
-# ... 现有代码 ...
-
-# 修改预测函数以适应新的预测逻辑
-def predict(model, test_data, criterion, window_size, future_steps, device):
+# 修改预测函数
+def predict(model, test_data, criterion, window_size, device):
     """ 
     在测试集中测试模型的正确性
     test_data: [num_samples, num_features] 
@@ -254,30 +212,14 @@ def predict(model, test_data, criterion, window_size, future_steps, device):
     model.eval()
     model.to(device)
     test_data = test_data.to(device)
-    
-    # 使用双向窗口，包含过去和未来的数据
-    total_window = window_size + future_steps
+    windows = deque(maxlen=window_size)
     
     # 收集训练数据上的误差，用于确定阈值
     train_errors = []
     with torch.no_grad():
-        for i in range(window_size//2, len(train_data)-future_steps):
-            # 构建包含过去和未来的窗口
-            window_start = i - window_size//2
-            window_end = i + future_steps + window_size//2
-            if window_start < 0:
-                window_start = 0
-            if window_end > len(train_data):
-                window_end = len(train_data)
-                
-            x_train = torch.tensor(train_data[window_start:window_end], dtype=torch.float32).to(device)
+        for i in range(window_size, len(train_data)):
+            x_train = torch.tensor(train_data[i-window_size:i], dtype=torch.float32).to(device)
             y_train = torch.tensor(train_data[i], dtype=torch.float32).to(device)
-            
-            # 确保输入维度正确
-            if len(x_train) < total_window:
-                # 如果窗口不足，跳过这个样本
-                continue
-                
             y_hat = model(x_train.unsqueeze(0))
             error = criterion(y_hat, y_train).item()
             train_errors.append(error)
@@ -286,45 +228,26 @@ def predict(model, test_data, criterion, window_size, future_steps, device):
     threshold = np.mean(train_errors) + 3 * np.std(train_errors)
     print(f"计算得到的阈值: {threshold}")
     
-    # 预测测试数据
     result = []
     errors = []
-    
-    # 前window_size//2个点无法预测，标记为正常
-    for i in range(window_size//2):
-        result.append(True)
-    
-    # 后future_steps个点也无法预测，最后会处理
     with torch.no_grad():
-        for i in range(window_size//2, len(test_data)-future_steps):
-            # 构建包含过去和未来的窗口
-            window_start = i - window_size//2
-            window_end = i + future_steps + window_size//2
-            if window_end > len(test_data):
-                window_end = len(test_data)
-                
-            x_test = torch.tensor(test_data[window_start:window_end], dtype=torch.float32).to(device)
-            y_test = test_data[i]
-            
-            # 确保输入维度正确
-            if len(x_test) < total_window:
-                # 如果窗口不足，标记为正常
-                result.append(True)
+        for i, signal in enumerate(test_data):
+            if i < window_size: 
+                windows.append(signal)
+                result.append(True)  # 前window_size个点默认为正常
                 continue
-                
-            y_hat = model(x_test.unsqueeze(0))
-            error = criterion(y_hat, y_test).item()
+
+            x = torch.stack(list(windows)).unsqueeze(0)  # 添加batch维度
+            y_hat = model(x)
+            error = criterion(y_hat, signal).item()
             errors.append(error)
+            windows.append(signal)
             
             # 如果误差大于阈值，则判断为异常
             if error > threshold:
                 result.append(False)  # 异常
             else:
                 result.append(True)   # 正常
-    
-    # 后future_steps个点无法预测，标记为正常
-    for i in range(future_steps):
-        result.append(True)
     
     # 可视化误差分布 - 确保中文显示
     plt.figure(figsize=(12, 6))
@@ -347,9 +270,7 @@ def predict(model, test_data, criterion, window_size, future_steps, device):
     return errors, result
 
 # %%
-#更新主程序中的参数
-future_steps = 10  # 未来时间步数量
-dataset = slidingWindowDataset(train_data, window_size, stride, future_steps)
+dataset = slidingWindowDataset(train_data, window_size, stride)
 
 # 训练模型
 model.train()
@@ -366,7 +287,7 @@ model.eval()
 
 # 测试数据集1
 print("测试数据集1的结果:")
-errors1, result1 = predict(model, testdata1, criterion, window_size, future_steps, device)
+errors1, result1 = predict(model, testdata1, criterion, window_size, device)
 normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
@@ -374,7 +295,7 @@ print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
 
 # 测试数据集2
 print("\n测试数据集2的结果:")
-errors2, result2 = predict(model, testdata2, criterion, window_size,future_steps, device)
+errors2, result2 = predict(model, testdata2, criterion, window_size, device)
 normal_count2 = result2.count(True)
 anomaly_count2 = len(result2) - normal_count2
 print(f"正常数据点: {normal_count2}, 异常数据点: {anomaly_count2}")
