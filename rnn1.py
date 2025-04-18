@@ -160,8 +160,8 @@ hidden_size = 256  # 隐藏层维度
 num_layers = 3    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
-num_epochs = 1000
-window_size = 100
+num_epochs = 500
+window_size = 200
 stride = 10
 threshold = 1e-5
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -235,20 +235,25 @@ def train(model, dataloader, optimizer, criterion, num_epochs, device, patience=
     
     return model, best_loss
 
-# 修改预测函数
-def predict(model, test_data, criterion, window_size, device):
-    """ 
-    在测试集中测试模型的正确性
-    test_data: [num_samples, num_features] 
+def calculate_threshold(model, train_data, criterion, window_size, device, sigma_multiplier=3):
     """
-    test_data = torch.Tensor(test_data)
-    model.eval()
-    model.to(device)
-    test_data = test_data.to(device)
-    windows = deque(maxlen=window_size)
+    基于训练数据计算异常检测的阈值
     
-    # 收集训练数据上的误差，用于确定阈值
+    参数:
+    model: 训练好的模型
+    train_data: 训练数据
+    criterion: 损失函数
+    window_size: 滑动窗口大小
+    device: 计算设备
+    sigma_multiplier: 标准差的乘数因子，默认为3（3-sigma原则）
+    
+    返回:
+    threshold: 计算得到的阈值
+    train_errors: 训练数据上的预测误差列表
+    """
+    model.eval()
     train_errors = []
+    
     with torch.no_grad():
         for i in range(window_size, len(train_data)):
             x_train = torch.tensor(train_data[i-window_size:i], dtype=torch.float32).to(device)
@@ -257,9 +262,25 @@ def predict(model, test_data, criterion, window_size, device):
             error = criterion(y_hat, y_train).item()
             train_errors.append(error)
     
-    # 计算阈值：均值 + 3*标准差
-    threshold = np.mean(train_errors) + 3 * np.std(train_errors)
+    # 计算阈值：均值 + sigma_multiplier*标准差
+    threshold = np.mean(train_errors) + sigma_multiplier * np.std(train_errors)
     print(f"计算得到的阈值: {threshold}")
+    
+    return threshold, train_errors
+
+def predict(model, test_data, criterion, threshold, window_size, device):
+    """ 
+    在测试集中测试模型的正确性
+    
+    参数:
+    test_data: [num_samples, num_features] 
+    threshold: 用于异常检测的阈值
+    """
+    test_data = torch.Tensor(test_data)
+    model.eval()
+    model.to(device)
+    test_data = test_data.to(device)
+    windows = deque(maxlen=window_size)
     
     result = []
     errors = []
@@ -282,24 +303,6 @@ def predict(model, test_data, criterion, window_size, device):
             else:
                 result.append(True)   # 正常
     
-    # 可视化误差分布 - 确保中文显示
-    plt.figure(figsize=(12, 6))
-    plt.subplot(2, 1, 1)
-    plt.hist(train_errors, bins=50, alpha=0.5, label='训练误差')
-    plt.hist(errors, bins=50, alpha=0.5, label='测试误差')
-    plt.axvline(threshold, color='r', linestyle='--', label=f'阈值 ({threshold:.6f})')
-    plt.legend(prop={'size': 12})  # 设置图例字体大小
-    plt.title('误差分布', fontsize=14)  # 设置标题字体大小
-    
-    plt.subplot(2, 1, 2)
-    plt.plot(errors, label='测试误差')
-    plt.axhline(threshold, color='r', linestyle='--', label='阈值')
-    plt.legend(prop={'size': 12})
-    plt.title('测试误差时间序列', fontsize=14)
-    plt.tight_layout()
-    plt.savefig('d:/lecture/25spring/模式识别/作业1/error_distribution.png', dpi=300, bbox_inches='tight')  # 保存图片
-    plt.show()
-    
     return errors, result
 
 # %%
@@ -309,18 +312,31 @@ dataset = slidingWindowDataset(train_data, window_size, stride)
 model.train()
 model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, patience=50)
 
-# 不需要额外保存模型，因为最佳模型已在训练过程中保存
 print(f"训练完成，最佳损失: {best_loss:.6f}")
 
 # 保存模型
 torch.save(model.state_dict(), 'd:/lecture/25spring/模式识别/作业1/rnn_model.pth')
+
+# 计算阈值
+threshold, train_errors = calculate_threshold(model, train_data, criterion, window_size, device)
+
+# 可视化训练误差分布
+plt.figure(figsize=(10, 6))
+plt.hist(train_errors, bins=50, alpha=0.7, label='训练误差')
+plt.axvline(threshold, color='r', linestyle='--', label=f'阈值 ({threshold:.6f})')
+plt.legend(prop={'size': 12})
+plt.title('训练数据误差分布与阈值', fontsize=14)
+plt.xlabel('误差值', fontsize=12)
+plt.ylabel('频次', fontsize=12)
+plt.savefig('d:/lecture/25spring/模式识别/作业1/threshold_visualization.png', dpi=300, bbox_inches='tight')
+plt.show()
 
 # 评估模型 - 修改为同时测试两个数据集
 model.eval()
 
 # 测试数据集1
 print("测试数据集1的结果:")
-errors1, result1 = predict(model, testdata1, criterion, window_size, device)
+errors1, result1 = predict(model, testdata1, criterion, threshold, window_size, device)
 normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
@@ -328,7 +344,7 @@ print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
 
 # 测试数据集2
 print("\n测试数据集2的结果:")
-errors2, result2 = predict(model, testdata2, criterion, window_size, device)
+errors2, result2 = predict(model, testdata2, criterion,threshold, window_size, device)
 normal_count2 = result2.count(True)
 anomaly_count2 = len(result2) - normal_count2
 print(f"正常数据点: {normal_count2}, 异常数据点: {anomaly_count2}")
