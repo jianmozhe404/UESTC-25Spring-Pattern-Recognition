@@ -93,13 +93,13 @@ class RNN(torch.nn.Module):
         return out
 
 class LSTM(torch.nn.Module):
-    def __init__(self,input_dim,hidden_dim,device,num_layers=3):
+    def __init__(self,input_dim,hidden_dim,device,num_layers=2):
         super(LSTM,self).__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.bidirectional = False
-        self.rnn = torch.nn.LSTM(self.input_dim,self.hidden_dim,num_layers=num_layers,dropout=0.1,
+        self.rnn = torch.nn.LSTM(self.input_dim,self.hidden_dim,num_layers=num_layers,dropout=0.2,
                            bidirectional=self.bidirectional,batch_first=True)
        
         self.fc = torch.nn.Linear(hidden_dim,input_dim)  
@@ -156,14 +156,14 @@ class slidingWindowDataset:
 
 # %%
 input_size = 31  # 特征维度
-hidden_size = 256  # 隐藏层维度
-num_layers = 3    # 隐藏层层数
+hidden_size = 64  # 隐藏层维度
+num_layers = 2    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
-num_epochs = 1000
-window_size = 500
-stride = 5
-patience = 30
+num_epochs = 2000
+window_size = 200
+stride = 10
+patience = 100
 
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -175,6 +175,7 @@ dataloader = torch.utils.data.DataLoader(dataset,batch_size,shuffle=False)
 model = LSTM(input_size,hidden_size,device,num_layers)
 optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
 #损失函数暂时选择均方误差
+
 criterion = torch.nn.HuberLoss(delta=1.0)
 
 # %%
@@ -311,7 +312,7 @@ dataset = slidingWindowDataset(train_data, window_size, stride)
 
 # 训练模型
 model.train()
-model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, patience=50)
+model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, patience)
 
 print(f"训练完成，最佳损失: {best_loss:.6f}")
 
@@ -336,14 +337,15 @@ plt.show()
 model.eval()
 
 # 测试数据集1
-'''
+
 print("测试数据集1的结果:")
 errors1, result1 = predict(model, testdata1, criterion, threshold, window_size, device)
 normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
 print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
-'''
+
+
 # 测试数据集2
 print("\n测试数据集2的结果:")
 errors2, result2 = predict(model, testdata2, criterion,threshold, window_size, device)
@@ -359,7 +361,7 @@ plt.figure(figsize=(15, 10))
 plt.subplot(2, 1, 1)
 feature_idx = 0  # 可以选择任意特征进行可视化
 plt.plot(testdata1[:, feature_idx], label='测试数据1')
-
+'''
 # 标记异常点
 anomaly_indices1 = [i for i, r in enumerate(result1) if not r]
 if anomaly_indices1:
@@ -370,7 +372,7 @@ plt.legend(prop={'size': 12})
 plt.title('测试数据集1异常检测结果', fontsize=16)
 plt.xlabel('时间步', fontsize=14)
 plt.ylabel('特征值', fontsize=14)
-
+'''
 # 数据集2的可视化
 plt.subplot(2, 1, 2)
 plt.plot(testdata2[:, feature_idx], label='测试数据2')
@@ -389,7 +391,7 @@ plt.ylabel('特征值', fontsize=14)
 plt.tight_layout()
 plt.savefig('d:/lecture/25spring/模式识别/作业1/both_datasets_anomaly_detection.png', dpi=300, bbox_inches='tight')
 plt.show()
-
+'''
 # 比较两个数据集的异常比例
 labels = ['测试数据集1', '测试数据集2']
 normal_percentages = [normal_count1/len(result1)*100, normal_count2/len(result2)*100]
@@ -410,5 +412,5 @@ plt.legend(prop={'size': 12})
 plt.tight_layout()
 plt.savefig('d:/lecture/25spring/模式识别/作业1/anomaly_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
-
+'''
 
