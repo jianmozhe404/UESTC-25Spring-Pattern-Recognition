@@ -166,7 +166,7 @@ def calculate_threshold(model, train_data, criterion, window_size, device, sigma
     criterion: 损失函数
     window_size: 滑动窗口大小
     device: 计算设备
-    sigma_multiplier: 标准差的乘数因子，默认为3（3-sigma原则）
+    sigma_multiplier: 标准差的乘数因子
     
     返回:
     threshold: 计算得到的阈值

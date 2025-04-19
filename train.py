@@ -1,11 +1,4 @@
-'''
-Author: jianmozhe jiaqizhao.c@gmail.com
-Date: 2025-04-18 22:37:59
-LastEditors: jianmozhe jiaqizhao.c@gmail.com
-LastEditTime: 2025-04-18 22:38:40
-FilePath: \作业1\train.py
-Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
-'''
+
 import torch
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -30,7 +23,7 @@ def main():
     batch_size = 64
     learning_rate = 1e-3
     num_epochs = 500 # 可以根据需要调整
-    window_size = 200
+    window_size = 300
     stride = 10
     patience = 50 # 早停耐心值
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,7 +46,7 @@ def main():
     criterion = torch.nn.MSELoss()
 
     print("开始训练...")
-    trained_model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, model_save_path, patience=patience)
+    trained_model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, patience)
     print(f"训练完成，最佳损失: {best_loss:.6f}")
     print(f"最佳模型已保存至: {model_save_path}")
 

@@ -160,10 +160,11 @@ hidden_size = 256  # 隐藏层维度
 num_layers = 3    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
-num_epochs = 500
-window_size = 200
-stride = 10
-threshold = 1e-5
+num_epochs = 1000
+window_size = 500
+stride = 5
+patience = 30
+
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 dataset = slidingWindowDataset(train_data,window_size,stride)
@@ -174,11 +175,11 @@ dataloader = torch.utils.data.DataLoader(dataset,batch_size,shuffle=False)
 model = LSTM(input_size,hidden_size,device,num_layers)
 optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
 #损失函数暂时选择均方误差
-criterion = torch.nn.MSELoss()
+criterion = torch.nn.HuberLoss(delta=1.0)
 
 # %%
 # 修改训练函数，添加早停机制
-def train(model, dataloader, optimizer, criterion, num_epochs, device, patience=20):
+def train(model, dataloader, optimizer, criterion, num_epochs, device, patience):
     model.to(device)
     total_steps = len(dataloader) * num_epochs
     global_step = 0
@@ -335,13 +336,14 @@ plt.show()
 model.eval()
 
 # 测试数据集1
+'''
 print("测试数据集1的结果:")
 errors1, result1 = predict(model, testdata1, criterion, threshold, window_size, device)
 normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
 print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
-
+'''
 # 测试数据集2
 print("\n测试数据集2的结果:")
 errors2, result2 = predict(model, testdata2, criterion,threshold, window_size, device)

@@ -14,7 +14,7 @@ matplotlib.rcParams['font.sans-serif'] = ['SimHei']
 matplotlib.rcParams['axes.unicode_minus'] = False
 
 def main():
-    # %% 数据加载与预处理 (需要训练数据来拟合scaler和计算阈值)
+    
     train_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Train_data.csv'
     test1_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Test_data1.csv'
     test2_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Test_data2.csv'
@@ -33,11 +33,10 @@ def main():
     testdata1_scaled = scaler.transform(testdata1_np)
     testdata2_scaled = scaler.transform(testdata2_np)
 
-    # %% 参数设置 (需要与训练时一致)
     input_size = train_data_scaled.shape[1]
     hidden_size = 256 # 保持与训练时一致
     num_layers = 3    # 保持与训练时一致
-    window_size = 200 # 保持与训练时一致
+    window_size = 300 # 保持与训练时一致
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_load_path = 'd:/lecture/25spring/模式识别/作业1/lstm_best_model.pth' # 加载训练好的模型
 
@@ -49,7 +48,6 @@ def main():
     testdata1_tensor = torch.tensor(testdata1_scaled, dtype=torch.float32)
     testdata2_tensor = torch.tensor(testdata2_scaled, dtype=torch.float32)
 
-    # %% 加载模型
     model = LSTM(input_size, hidden_size, device, num_layers)
     try:
         model.load_state_dict(torch.load(model_load_path, map_location=device))
@@ -61,8 +59,8 @@ def main():
         print(f"加载模型时出错: {e}")
         return
 
-    model.to(device) # 确保模型在正确的设备上
-    criterion = torch.nn.MSELoss() # 评估时也需要损失函数来计算误差
+    model.to(device) 
+    criterion = torch.nn.MSELoss() 
 
     # %% 计算阈值 (使用训练数据)
     print("开始计算阈值...")
@@ -89,8 +87,7 @@ def main():
     # 测试数据集1
     print("\n测试数据集1的结果:")
     errors1, result1 = predict(model, testdata1_tensor, criterion, threshold, window_size, device)
-    # 注意：predict 返回的 result 长度与 testdata1_tensor 相同，errors 长度为 len(testdata1_tensor) - window_size
-    # 计算异常点数时，应考虑 result 的总长度
+    
     normal_count1 = result1.count(True)
     anomaly_count1 = len(result1) - normal_count1
     print(f"总数据点: {len(result1)}")
@@ -112,9 +109,6 @@ def main():
         print(f"异常比例: {anomaly_count2/len(result2)*100:.2f}%")
     else:
         print("无数据点可计算比例")
-
-
-    # %% 可视化评估结果
 
     # 可视化两个测试数据集的异常检测结果
     plt.figure(figsize=(15, 10))
