@@ -125,6 +125,54 @@ class LSTM(torch.nn.Module):
         out = self.fc(output[:, -1, :])
         return out
 
+
+class LSTMAutoencoder(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim, device, num_layers=2):
+        super(LSTMAutoencoder, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        self.device = device
+        
+        # 编码器
+        self.encoder = torch.nn.LSTM(
+            input_dim, 
+            hidden_dim, 
+            num_layers=num_layers,
+            dropout=0.2,
+            batch_first=True
+        )
+        
+        # 解码器
+        self.decoder = torch.nn.LSTM(
+            hidden_dim, 
+            hidden_dim, 
+            num_layers=num_layers,
+            dropout=0.2,
+            batch_first=True
+        )
+        
+        # 输出层
+        self.output_layer = torch.nn.Linear(hidden_dim, input_dim)
+        
+    def forward(self, x):
+        batch_size = x.size(0)
+        seq_len = x.size(1)
+        
+        # 编码
+        _, (h_n, c_n) = self.encoder(x)
+        
+        # 使用编码器的最后隐藏状态初始化解码器输入
+        # 取最后一层的隐藏状态并重复seq_len次
+        decoder_input = h_n[-1].unsqueeze(1).repeat(1, seq_len, 1)
+        
+        # 解码
+        decoder_output, _ = self.decoder(decoder_input)
+        
+        # 输出层
+        output = self.output_layer(decoder_output)
+        
+        return output
 # %%
 #滑窗切分样本
 class slidingWindowDataset:
@@ -155,14 +203,39 @@ class slidingWindowDataset:
         return torch.tensor(sample,dtype=torch.float32),torch.tensor(label,dtype=torch.float32) 
 
 # %%
+# 为自编码器修改的滑窗数据集类
+class AutoencoderDataset:
+    def __init__(self, data, window_size, stride):
+        super(AutoencoderDataset, self).__init__()
+        self.data = data
+        self.window_size = window_size
+        self.stride = stride
+        self.num_samples = (len(data) - window_size) // stride + 1
+
+    def __len__(self):
+        return self.num_samples
+    
+    def __getitem__(self, idx):
+        """
+        输入: 一个样本的索引
+        返回:
+        1. 样本本身: (window_size, features)
+        2. 目标: 与样本相同 (window_size, features)
+        """
+        start = idx * self.stride
+        end = start + self.window_size
+        sample = self.data[start:end, :]
+        # 自编码器的输入和目标相同
+        return torch.tensor(sample, dtype=torch.float32), torch.tensor(sample, dtype=torch.float32)
+# %%
 input_size = 31  # 特征维度
 hidden_size = 64  # 隐藏层维度
 num_layers = 2    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
 num_epochs = 2000
-window_size = 200
-stride = 10
+window_size = 50
+stride = 5
 patience = 100
 
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -237,6 +310,68 @@ def train(model, dataloader, optimizer, criterion, num_epochs, device, patience)
     
     return model, best_loss
 
+# %%
+# 修改训练函数，适用于自编码器
+def train_autoencoder(model, dataloader, optimizer, criterion, num_epochs, device, patience):
+    model.to(device)
+    total_steps = len(dataloader) * num_epochs
+    global_step = 0
+    
+    # 早停相关变量
+    best_loss = float('inf')
+    best_model_state = None
+    patience_counter = 0
+    
+    for epoch in range(num_epochs):
+        model.train()
+        epoch_loss = []
+        
+        for samples, targets in dataloader:
+            samples = samples.to(device)
+            targets = targets.to(device)
+            
+            optimizer.zero_grad()
+            reconstructed = model(samples)
+            
+            # 计算重构误差
+            loss = criterion(reconstructed, targets)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss.append(loss.item())
+            global_step += 1
+            
+            if global_step % 100 == 0:
+                print(f'Epoch [{epoch+1}/{num_epochs}], Step [{global_step}/{total_steps}], Loss: {loss.item():.4f}')
+        
+        avg_loss = sum(epoch_loss) / len(epoch_loss)
+        print(f'Epoch [{epoch+1}/{num_epochs}], Average Loss: {avg_loss:.4f}')
+        
+        # 早停检查
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            best_model_state = model.state_dict().copy()
+            patience_counter = 0
+            # 保存最佳模型
+            torch.save(best_model_state, f'd:/lecture/25spring/模式识别/作业1/autoencoder_best_model.pth')
+            print(f'Epoch [{epoch+1}]: 保存最佳模型，损失: {best_loss:.6f}')
+        else:
+            patience_counter += 1
+            print(f'Epoch [{epoch+1}]: 损失未改善，耐心计数: {patience_counter}/{patience}')
+            
+        # 如果连续patience个epoch没有改善，则停止训练
+        if patience_counter >= patience:
+            print(f'早停: {patience}个epoch内损失未改善')
+            break
+    
+    # 训练结束后，加载最佳模型
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        print(f'训练完成，加载最佳模型，最佳损失: {best_loss:.6f}')
+    
+    return model, best_loss
+
+
 def calculate_threshold(model, train_data, criterion, window_size, device, sigma_multiplier=3):
     """
     基于训练数据计算异常检测的阈值
@@ -270,6 +405,63 @@ def calculate_threshold(model, train_data, criterion, window_size, device, sigma
     
     return threshold, train_errors
 
+# %%
+def calculate_autoencoder_threshold(model, train_data, criterion, window_size, device, sigma_multiplier=3):
+    """
+    基于训练数据计算自编码器异常检测的阈值
+    """
+    model.eval()
+    reconstruction_errors = []
+    
+    with torch.no_grad():
+        for i in tqdm(range(0, len(train_data) - window_size, 10), desc="计算阈值"):  # 使用步长10加速计算
+            x_window = torch.tensor(train_data[i:i+window_size], dtype=torch.float32).unsqueeze(0).to(device)
+            reconstructed = model(x_window)
+            # 计算整个窗口的重构误差
+            error = criterion(reconstructed, x_window).item()
+            reconstruction_errors.append(error)
+    
+    # 计算阈值：均值 + sigma_multiplier*标准差
+    threshold = np.mean(reconstruction_errors) + sigma_multiplier * np.std(reconstruction_errors)
+    print(f"计算得到的阈值: {threshold}")
+    
+    return threshold, reconstruction_errors
+
+ # %%
+def predict_autoencoder(model, test_data, criterion, threshold, window_size, device):
+    """
+    使用自编码器进行异常检测
+    """
+    test_data = torch.Tensor(test_data)
+    model.eval()
+    model.to(device)
+    
+    result = []
+    errors = []
+    
+    # 前window_size个点无法预测，默认为正常
+    for i in range(window_size):
+        result.append(True)
+    
+    with torch.no_grad():
+        for i in tqdm(range(window_size, len(test_data)), desc="执行预测"):
+            # 获取当前窗口
+            x_window = test_data[i-window_size:i].unsqueeze(0).to(device)
+            # 重构窗口
+            reconstructed = model(x_window)
+            # 计算重构误差
+            error = criterion(reconstructed, x_window).item()
+            errors.append(error)
+            
+            # 如果重构误差大于阈值，则判断为异常
+            if error > threshold:
+                result.append(False)  # 异常
+            else:
+                result.append(True)   # 正常
+    
+    return errors, result
+    
+       
 def predict(model, test_data, criterion, threshold, window_size, device):
     """ 
     在测试集中测试模型的正确性
@@ -307,48 +499,50 @@ def predict(model, test_data, criterion, threshold, window_size, device):
     
     return errors, result
 
-# %%
-dataset = slidingWindowDataset(train_data, window_size, stride)
+# %% 创建自编码器数据集
+dataset = AutoencoderDataset(train_data, window_size, stride)
+dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-# 训练模型
-model.train()
-model, best_loss = train(model, dataloader, optimizer, criterion, num_epochs, device, patience)
+# 创建自编码器模型
+model = LSTMAutoencoder(input_size, hidden_size, device, num_layers)
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+criterion = torch.nn.MSELoss()  # 自编码器通常使用MSE损失
 
+# 训练自编码器
+model, best_loss = train_autoencoder(model, dataloader, optimizer, criterion, num_epochs, device, patience)
 print(f"训练完成，最佳损失: {best_loss:.6f}")
 
 # 保存模型
-torch.save(model.state_dict(), 'd:/lecture/25spring/模式识别/作业1/rnn_model.pth')
+torch.save(model.state_dict(), 'd:/lecture/25spring/模式识别/作业1/autoencoder_model.pth')
 
 # 计算阈值
-threshold, train_errors = calculate_threshold(model, train_data, criterion, window_size, device)
+threshold, train_errors = calculate_autoencoder_threshold(model, train_data, criterion, window_size, device)
 
 # 可视化训练误差分布
 plt.figure(figsize=(10, 6))
-plt.hist(train_errors, bins=50, alpha=0.7, label='训练误差')
+plt.hist(train_errors, bins=50, alpha=0.7, label='训练重构误差')
 plt.axvline(threshold, color='r', linestyle='--', label=f'阈值 ({threshold:.6f})')
 plt.legend(prop={'size': 12})
-plt.title('训练数据误差分布与阈值', fontsize=14)
-plt.xlabel('误差值', fontsize=12)
+plt.title('训练数据重构误差分布与阈值', fontsize=14)
+plt.xlabel('重构误差', fontsize=12)
 plt.ylabel('频次', fontsize=12)
-plt.savefig('d:/lecture/25spring/模式识别/作业1/threshold_visualization.png', dpi=300, bbox_inches='tight')
+plt.savefig('d:/lecture/25spring/模式识别/作业1/autoencoder_threshold_visualization.png', dpi=300, bbox_inches='tight')
 plt.show()
 
-# 评估模型 - 修改为同时测试两个数据集
+# 评估模型
 model.eval()
 
 # 测试数据集1
-
 print("测试数据集1的结果:")
-errors1, result1 = predict(model, testdata1, criterion, threshold, window_size, device)
+errors1, result1 = predict_autoencoder(model, testdata1, criterion, threshold, window_size, device)
 normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
 print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
 
-
 # 测试数据集2
 print("\n测试数据集2的结果:")
-errors2, result2 = predict(model, testdata2, criterion,threshold, window_size, device)
+errors2, result2 = predict_autoencoder(model, testdata2, criterion, threshold, window_size, device)
 normal_count2 = result2.count(True)
 anomaly_count2 = len(result2) - normal_count2
 print(f"正常数据点: {normal_count2}, 异常数据点: {anomaly_count2}")
@@ -361,7 +555,6 @@ plt.figure(figsize=(15, 10))
 plt.subplot(2, 1, 1)
 feature_idx = 0  # 可以选择任意特征进行可视化
 plt.plot(testdata1[:, feature_idx], label='测试数据1')
-'''
 # 标记异常点
 anomaly_indices1 = [i for i, r in enumerate(result1) if not r]
 if anomaly_indices1:
@@ -372,11 +565,10 @@ plt.legend(prop={'size': 12})
 plt.title('测试数据集1异常检测结果', fontsize=16)
 plt.xlabel('时间步', fontsize=14)
 plt.ylabel('特征值', fontsize=14)
-'''
+
 # 数据集2的可视化
 plt.subplot(2, 1, 2)
 plt.plot(testdata2[:, feature_idx], label='测试数据2')
-
 # 标记异常点
 anomaly_indices2 = [i for i, r in enumerate(result2) if not r]
 if anomaly_indices2:
@@ -389,9 +581,9 @@ plt.xlabel('时间步', fontsize=14)
 plt.ylabel('特征值', fontsize=14)
 
 plt.tight_layout()
-plt.savefig('d:/lecture/25spring/模式识别/作业1/both_datasets_anomaly_detection.png', dpi=300, bbox_inches='tight')
+plt.savefig('d:/lecture/25spring/模式识别/作业1/autoencoder_anomaly_detection.png', dpi=300, bbox_inches='tight')
 plt.show()
-'''
+
 # 比较两个数据集的异常比例
 labels = ['测试数据集1', '测试数据集2']
 normal_percentages = [normal_count1/len(result1)*100, normal_count2/len(result2)*100]
@@ -410,7 +602,5 @@ plt.xticks(x, labels, fontsize=12)
 plt.legend(prop={'size': 12})
 
 plt.tight_layout()
-plt.savefig('d:/lecture/25spring/模式识别/作业1/anomaly_comparison.png', dpi=300, bbox_inches='tight')
+plt.savefig('d:/lecture/25spring/模式识别/作业1/autoencoder_anomaly_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
-'''
-
