@@ -241,29 +241,6 @@ class AutoencoderDataset:
         # 自编码器的输入和目标相同
         return torch.tensor(sample, dtype=torch.float32), torch.tensor(sample, dtype=torch.float32)
 # %%
-input_size = 31  # 特征维度
-hidden_size = 64  # 隐藏层维度
-num_layers = 2    # 隐藏层层数
-batch_size = 64   # 批次大小
-learning_rate = 1e-3
-num_epochs = 2000
-window_size = 100
-stride = 4
-patience = 88
-set_seed(44)
-
-device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
-dataset = slidingWindowDataset(train_data,window_size,stride)
-
-#暂时选择不打乱数据
-dataloader = torch.utils.data.DataLoader(dataset,batch_size,shuffle=False)
-
-model = LSTM(input_size,hidden_size,device,num_layers)
-optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
-#损失函数暂时选择均方误差
-
-criterion = torch.nn.HuberLoss(delta=1.0)
 
 # %%
 # 修改训练函数，添加早停机制
@@ -568,7 +545,20 @@ def calculate_metrics(result, test_data_length, anomaly_start=None):
     }
     
     return metrics
-# %% 创建自编码器数据集
+input_size = 31  # 特征维度
+hidden_size = 32  # 隐藏层维度
+num_layers = 2    # 隐藏层层数
+batch_size = 64   # 批次大小
+learning_rate = 1e-3
+num_epochs = 2000
+window_size = 100
+stride = 4
+patience = 88
+set_seed(44)
+
+device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+# 创建自编码器数据集
 dataset = AutoencoderDataset(train_data, window_size, stride)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
