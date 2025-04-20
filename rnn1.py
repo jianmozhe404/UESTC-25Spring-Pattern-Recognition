@@ -248,8 +248,8 @@ batch_size = 64   # 批次大小
 learning_rate = 1e-3
 num_epochs = 2000
 window_size = 100
-stride = 5
-patience = 100
+stride = 4
+patience = 88
 set_seed(44)
 
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
