@@ -234,7 +234,7 @@ num_layers = 2    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
 num_epochs = 2000
-window_size = 50
+window_size = 100
 stride = 5
 patience = 100
 
