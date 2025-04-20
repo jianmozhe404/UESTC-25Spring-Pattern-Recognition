@@ -344,7 +344,7 @@ def train_autoencoder(model, dataloader, optimizer, criterion, num_epochs, devic
             best_model_state = model.state_dict().copy()
             patience_counter = 0
             # 保存最佳模型
-            torch.save(best_model_state, f'autoencoder_best_model.pth')
+            torch.save(best_model_state, f'save_model/autoencoder_best_model.pth')
             print(f'Epoch [{epoch+1}]: 保存最佳模型，损失: {best_loss:.6f}')
         else:
             patience_counter += 1
@@ -550,10 +550,10 @@ hidden_size = 32  # 隐藏层维度
 num_layers = 2    # 隐藏层层数
 batch_size = 64   # 批次大小
 learning_rate = 1e-3
-num_epochs = 2000
+num_epochs = 600
 window_size = 100
 stride = 4
-patience = 88
+patience = 100
 set_seed(44)
 
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -591,6 +591,8 @@ plt.show()
 # 评估模型
 model.eval()
 
+# 测试数据集1model.eval()
+
 # 测试数据集1
 print("测试数据集1的结果:")
 errors1, result1 = predict_autoencoder(model, testdata1, criterion, threshold, window_size, device)
@@ -598,6 +600,17 @@ normal_count1 = result1.count(True)
 anomaly_count1 = len(result1) - normal_count1
 print(f"正常数据点: {normal_count1}, 异常数据点: {anomaly_count1}")
 print(f"异常比例: {anomaly_count1/len(result1)*100:.2f}%")
+
+# 计算测试数据集1的评估指标
+metrics1 = calculate_metrics(result1, len(testdata1))
+print("\n测试数据集1的评估指标:")
+for metric_name, metric_value in metrics1.items():
+    if metric_name != "混淆矩阵":
+        print(f"{metric_name}: {metric_value:.4f}")
+    else:
+        print(f"{metric_name}:")
+        for cm_name, cm_value in metric_value.items():
+            print(f"  {cm_name}: {cm_value}")
 
 # 测试数据集2
 print("\n测试数据集2的结果:")
@@ -607,59 +620,78 @@ anomaly_count2 = len(result2) - normal_count2
 print(f"正常数据点: {normal_count2}, 异常数据点: {anomaly_count2}")
 print(f"异常比例: {anomaly_count2/len(result2)*100:.2f}%")
 
-# 可视化两个测试数据集的异常检测结果
-plt.figure(figsize=(15, 10))
+# 计算测试数据集2的评估指标
+metrics2 = calculate_metrics(result2, len(testdata2))
+print("\n测试数据集2的评估指标:")
+for metric_name, metric_value in metrics2.items():
+    if metric_name != "混淆矩阵":
+        print(f"{metric_name}: {metric_value:.4f}")
+    else:
+        print(f"{metric_name}:")
+        for cm_name, cm_value in metric_value.items():
+            print(f"  {cm_name}: {cm_value}")
 
-# 数据集1的可视化
-plt.subplot(2, 1, 1)
-feature_idx = 0  # 可以选择任意特征进行可视化
-plt.plot(testdata1[:, feature_idx], label='测试数据1')
-# 标记异常点
-anomaly_indices1 = [i for i, r in enumerate(result1) if not r]
-if anomaly_indices1:
-    plt.scatter(anomaly_indices1, testdata1[anomaly_indices1, feature_idx], 
-                color='red', label='异常点')
+# ... 现有代码 ...
 
-plt.legend(prop={'size': 12})
-plt.title('测试数据集1异常检测结果', fontsize=16)
-plt.xlabel('时间步', fontsize=14)
-plt.ylabel('特征值', fontsize=14)
+# 添加混淆矩阵可视化
+def plot_confusion_matrix(metrics, title):
+    cm = np.array([
+        [metrics["混淆矩阵"]["真负例(TN)"], metrics["混淆矩阵"]["假正例(FP)"]],
+        [metrics["混淆矩阵"]["假负例(FN)"], metrics["混淆矩阵"]["真正例(TP)"]]
+    ])
+    
+    plt.figure(figsize=(8, 6))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title(title, fontsize=16)
+    plt.colorbar()
+    
+    classes = ['异常', '正常']
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, fontsize=12)
+    plt.yticks(tick_marks, classes, fontsize=12)
+    
+    # 在格子中显示数字
+    thresh = cm.max() / 2.
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, format(cm[i, j], 'd'),
+                    horizontalalignment="center",
+                    color="white" if cm[i, j] > thresh else "black",
+                    fontsize=14)
+    
+    plt.ylabel('真实标签', fontsize=14)
+    plt.xlabel('预测标签', fontsize=14)
+    plt.tight_layout()
+    return plt
 
-# 数据集2的可视化
-plt.subplot(2, 1, 2)
-plt.plot(testdata2[:, feature_idx], label='测试数据2')
-# 标记异常点
-anomaly_indices2 = [i for i, r in enumerate(result2) if not r]
-if anomaly_indices2:
-    plt.scatter(anomaly_indices2, testdata2[anomaly_indices2, feature_idx], 
-                color='red', label='异常点')
+# 在可视化部分添加混淆矩阵图
+# 绘制测试数据集1的混淆矩阵
+cm_plot1 = plot_confusion_matrix(metrics1, '测试数据集1的混淆矩阵')
+cm_plot1.savefig('d:/lecture/25spring/模式识别/作业1/confusion_matrix_dataset1.png', dpi=300, bbox_inches='tight')
+cm_plot1.show()
 
-plt.legend(prop={'size': 12})
-plt.title('测试数据集2异常检测结果', fontsize=16)
-plt.xlabel('时间步', fontsize=14)
-plt.ylabel('特征值', fontsize=14)
+# 绘制测试数据集2的混淆矩阵
+cm_plot2 = plot_confusion_matrix(metrics2, '测试数据集2的混淆矩阵')
+cm_plot2.savefig('d:/lecture/25spring/模式识别/作业1/confusion_matrix_dataset2.png', dpi=300, bbox_inches='tight')
+cm_plot2.show()
 
-plt.tight_layout()
-plt.savefig('d:/lecture/25spring/模式识别/作业1/autoencoder_anomaly_detection.png', dpi=300, bbox_inches='tight')
-plt.show()
+# 添加评估指标对比图
+plt.figure(figsize=(12, 6))
+metrics_names = ["准确率", "精确率", "检测率(召回率)", "F1分数", "误检率"]
+metrics_values1 = [metrics1[name] for name in metrics_names]
+metrics_values2 = [metrics2[name] for name in metrics_names]
 
-# 比较两个数据集的异常比例
-labels = ['测试数据集1', '测试数据集2']
-normal_percentages = [normal_count1/len(result1)*100, normal_count2/len(result2)*100]
-anomaly_percentages = [anomaly_count1/len(result1)*100, anomaly_count2/len(result2)*100]
-
-plt.figure(figsize=(10, 6))
-x = np.arange(len(labels))
+x = np.arange(len(metrics_names))
 width = 0.35
 
-plt.bar(x - width/2, normal_percentages, width, label='正常数据')
-plt.bar(x + width/2, anomaly_percentages, width, label='异常数据')
+plt.bar(x - width/2, metrics_values1, width, label='测试数据集1')
+plt.bar(x + width/2, metrics_values2, width, label='测试数据集2')
 
-plt.ylabel('百分比 (%)', fontsize=14)
-plt.title('两个测试数据集的异常检测比例对比', fontsize=16)
-plt.xticks(x, labels, fontsize=12)
+plt.ylabel('指标值', fontsize=14)
+plt.title('两个测试数据集的评估指标对比', fontsize=16)
+plt.xticks(x, metrics_names, fontsize=12, rotation=15)
 plt.legend(prop={'size': 12})
 
 plt.tight_layout()
-plt.savefig('d:/lecture/25spring/模式识别/作业1/autoencoder_anomaly_comparison.png', dpi=300, bbox_inches='tight')
+plt.savefig('d:/lecture/25spring/模式识别/作业1/metrics_comparison.png', dpi=300, bbox_inches='tight')
 plt.show()
