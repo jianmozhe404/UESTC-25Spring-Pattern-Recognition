@@ -14,6 +14,8 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from collections import deque
 from tqdm import tqdm
+import random
+from sklearn.metrics import confusion_matrix, classification_report
 
 # 解决matplotlib中文显示问题
 import matplotlib
@@ -60,6 +62,17 @@ print("Test data 1 shape:", testdata1_tensor.shape)
 print("Test data 2 shape:", testdata2_tensor.shape)
 
 # %%
+# 设置随机种子以确保结果可复现
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"随机种子已设置为: {seed}")
+
 class RNN(torch.nn.Module):
     def __init__(self,input_dim,hidden_dim,device,num_layers=2):
         super(RNN,self).__init__()
@@ -237,6 +250,7 @@ num_epochs = 2000
 window_size = 100
 stride = 5
 patience = 100
+set_seed(44)
 
 device = device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -353,7 +367,7 @@ def train_autoencoder(model, dataloader, optimizer, criterion, num_epochs, devic
             best_model_state = model.state_dict().copy()
             patience_counter = 0
             # 保存最佳模型
-            torch.save(best_model_state, f'd:/lecture/25spring/模式识别/作业1/autoencoder_best_model.pth')
+            torch.save(best_model_state, f'autoencoder_best_model.pth')
             print(f'Epoch [{epoch+1}]: 保存最佳模型，损失: {best_loss:.6f}')
         else:
             patience_counter += 1
@@ -499,6 +513,61 @@ def predict(model, test_data, criterion, threshold, window_size, device):
     
     return errors, result
 
+def calculate_metrics(result, test_data_length, anomaly_start=None):
+    """
+    计算异常检测的评估指标
+    
+    参数:
+    result: 预测结果列表，True表示正常，False表示异常
+    test_data_length: 测试数据总长度
+    anomaly_start: 异常数据开始的索引，如果为None则使用默认值(总长度-1999)
+    
+    返回:
+    metrics: 包含各种评估指标的字典
+    """
+    if anomaly_start is None:
+        anomaly_start = test_data_length - 1999
+    
+    # 创建真实标签
+    true_labels = [True] * anomaly_start + [False] * (test_data_length - anomaly_start)
+    
+    # 确保预测结果和真实标签长度一致
+    if len(result) < test_data_length:
+        # 如果预测结果不足，用正常标签填充
+        result = result + [True] * (test_data_length - len(result))
+    elif len(result) > test_data_length:
+        # 如果预测结果过多，截断
+        result = result[:test_data_length]
+    
+    # 转换为二进制标签(0:异常, 1:正常)
+    y_true = [1 if label else 0 for label in true_labels]
+    y_pred = [1 if label else 0 for label in result]
+    
+    # 计算混淆矩阵
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    
+    # 计算评估指标
+    accuracy = (tp + tn) / (tp + tn + fp + fn)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0  # 检测率
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    false_alarm_rate = fp / (fp + tn) if (fp + tn) > 0 else 0  # 误检率
+    
+    metrics = {
+        "准确率": accuracy,
+        "精确率": precision,
+        "检测率(召回率)": recall,
+        "F1分数": f1,
+        "误检率": false_alarm_rate,
+        "混淆矩阵": {
+            "真正例(TP)": tp,
+            "假正例(FP)": fp,
+            "真负例(TN)": tn,
+            "假负例(FN)": fn
+        }
+    }
+    
+    return metrics
 # %% 创建自编码器数据集
 dataset = AutoencoderDataset(train_data, window_size, stride)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
