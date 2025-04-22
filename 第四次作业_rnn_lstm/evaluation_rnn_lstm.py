@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from collections import deque # predict 函数内部需要
 
 # 从 model_utils 导入所需的类和函数
-from model_utils import LSTM, calculate_threshold, predict
+from model_utils import RNN,LSTM, calculate_threshold, predict
 
 # 解决matplotlib中文显示问题
 import matplotlib
@@ -15,9 +15,9 @@ matplotlib.rcParams['axes.unicode_minus'] = False
 
 def main():
     
-    train_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Train_data.csv'
-    test1_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Test_data1.csv'
-    test2_file_path = 'd:/lecture/25spring/模式识别/作业1/test/Test_data2.csv'
+    train_file_path = 'test/Train_data.csv'
+    test1_file_path = 'test/Test_data1.csv'
+    test2_file_path = 'test/Test_data2.csv'
 
     train_data_df = pd.read_csv(train_file_path)
     testdata1_df = pd.read_csv(test1_file_path)
@@ -34,11 +34,11 @@ def main():
     testdata2_scaled = scaler.transform(testdata2_np)
 
     input_size = train_data_scaled.shape[1]
-    hidden_size = 256 # 保持与训练时一致
-    num_layers = 3    # 保持与训练时一致
-    window_size = 300 # 保持与训练时一致
+    hidden_size = 128 # 保持与训练时一致
+    num_layers = 2    # 保持与训练时一致
+    window_size = 100 # 保持与训练时一致
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_load_path = 'd:/lecture/25spring/模式识别/作业1/lstm_best_model.pth' # 加载训练好的模型
+    model_load_path = 'save_model/rnn_best_model.pth' # 加载训练好的模型
 
     print(f"使用设备: {device}")
     print(f"输入维度: {input_size}")
@@ -48,7 +48,7 @@ def main():
     testdata1_tensor = torch.tensor(testdata1_scaled, dtype=torch.float32)
     testdata2_tensor = torch.tensor(testdata2_scaled, dtype=torch.float32)
 
-    model = LSTM(input_size, hidden_size, device, num_layers)
+    model = RNN(input_size, hidden_size, device, num_layers)
     try:
         model.load_state_dict(torch.load(model_load_path, map_location=device))
         print(f"模型状态已从 {model_load_path} 加载")
@@ -157,3 +157,6 @@ def main():
 
         plt.ylabel('百分比 (%)', fontsize=14)
         plt.title('两个测试数据集的异常检测比例对比')
+
+if __name__ == "__main__":
+    main()
